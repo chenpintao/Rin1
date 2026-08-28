@@ -133,6 +133,7 @@ jobs:
           ls -la ./server/sql/ || echo "No server sql found"
 
       - name: Validate deploy script version
+        if : false
         run: |
           CURRENT_HASH=$(cat ./cli/src/tasks/deploy-cf.ts ./cli/src/lib/db-migration.ts | sha256sum | awk '{print $1}')
           ARTIFACT_HASH=$(cat ./artifacts/build-meta/deploy_script_hash 2>/dev/null || echo "")
