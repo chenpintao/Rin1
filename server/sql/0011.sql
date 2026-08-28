@@ -1,3 +1,7 @@
+-- 1. 先加列（如果还没有的话）
+ALTER TABLE `feeds` ADD COLUMN `top` INTEGER NOT NULL DEFAULT 0;
+
+-- 2. 然后是你那段迁移 SQL
 CREATE INDEX IF NOT EXISTS `feeds_alias_idx` ON `feeds` (`alias`);
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS `feeds_visibility_order_idx` ON `feeds` (`draft`, `listed`, `top`, `created_at`, `updated_at`);
