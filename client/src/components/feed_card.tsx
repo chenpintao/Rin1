@@ -94,6 +94,7 @@ export type FeedCardProps = {
     draft?: number;
     listed?: number;
     top?: number;
+    password_protected?: boolean;
     title: string;
     summary: string;
     hashtags?: { id: number, name: string }[];
@@ -103,7 +104,7 @@ export type FeedCardProps = {
     variant?: FeedCardVariant;
 };
 
-export function FeedCard({ id, title, avatar, draft, listed, top, summary, hashtags, createdAt, updatedAt, preview = false, variant }: FeedCardProps) {
+export function FeedCard({ id, title, avatar, draft, listed, top, password_protected, summary, hashtags, createdAt, updatedAt, preview = false, variant }: FeedCardProps) {
     const { t } = useTranslation();
     const siteConfig = useSiteConfig();
     const safeHashtags = Array.isArray(hashtags) ? hashtags : [];
@@ -117,7 +118,16 @@ export function FeedCard({ id, title, avatar, draft, listed, top, summary, hasht
                 </div>
             ) : null}
             <div className={activeVariant === "editorial" ? "px-2 pb-2" : ""}>
-                <h1 className={styles.title}>{title}</h1>
+                <h1 className={styles.title}>
+                    {password_protected && (
+                        <i
+                            className="ri-lock-2-line align-middle mr-1 text-base opacity-70"
+                            aria-label={t("article.lock.badge")}
+                            title={t("article.lock.badge")}
+                        />
+                    )}
+                    {title}
+                </h1>
                 <p className={`space-x-2 ${styles.meta}`}>
                     <span title={new Date(createdAt).toLocaleString()}>
                         {createdAt === updatedAt ? timeago(createdAt) : t('feed_card.published$time', { time: timeago(createdAt) })}
@@ -132,6 +142,7 @@ export function FeedCard({ id, title, avatar, draft, listed, top, summary, hasht
                     {draft === 1 && <span>{t("draft")}</span>}
                     {listed === 0 && <span>{t("unlisted")}</span>}
                     {top === 1 && <span className="text-theme">{t('article.top.title')}</span>}
+                    {password_protected && <span>{t("article.lock.badge")}</span>}
                 </p>
                 <p className={`whitespace-pre-line break-words [overflow-wrap:anywhere] ${styles.summary} ${activeVariant === "editorial" ? "mt-4 max-w-3xl" : ""}`}>{summary}</p>
                 {safeHashtags.length > 0 &&

@@ -1,12 +1,14 @@
 import {
     feedCreateSchema,
     feedSetTopSchema,
+    feedUnlockSchema,
     feedUpdateSchema,
 } from "@rin/api";
-import type { CreateFeedRequest, UpdateFeedRequest } from "@rin/api";
+import type { CreateFeedRequest, FeedUnlockRequest, UpdateFeedRequest } from "@rin/api";
 import { and, asc, count, desc, eq, gt, lt } from "drizzle-orm";
 import { Hono } from "hono";
-import type { Variables } from "../core/hono-types";
+import { getCookie, setCookie } from "hono/cookie";
+import type { AppContext, Variables } from "../core/hono-types";
 import { adminOnly, userOnly, withJsonBody } from "../core/route-boundaries";
 import { profileAsync } from "../core/server-timing";
 import { feeds, visits, visitStats } from "../db/schema";
@@ -21,10 +23,82 @@ import {
 import { HyperLogLog } from "../utils/hyperloglog";
 import { extractImageWithMetadata } from "../utils/image";
 import { stripMarkdown } from "../utils/markdown";
+import { hashPassword, safeEqualHash } from "../utils/password";
 import { syncFeedAISummaryQueueState } from "./feed-ai-summary";
 import { bindTagToPost } from "./tag";
 import { clearFeedCache, clearFeedCollectionCaches } from "./clear-feed-cache";
 export { clearFeedCache } from "./clear-feed-cache";
+
+const FEED_UNLOCK_COOKIE_PREFIX = "feed_access_";
+const FEED_UNLOCK_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+function buildFeedUnlockCookieName(feedId: number): string {
+    return `${FEED_UNLOCK_COOKIE_PREFIX}${feedId}`;
+}
+
+// Compare a hash against the expected hash using a constant-time comparison
+// so unlocking cannot be probed via timing side-channels. Re-uses the same
+// primitive already used for password verification.
+function isHashMatch(provided: unknown, expected: string): boolean {
+    return typeof provided === 'string' && safeEqualHash(provided, expected);
+}
+
+async function isFeedUnlocked(c: AppContext, feedId: number, expectedPasswordHash: string): Promise<boolean> {
+    const jwt = c.get('jwt');
+    if (!jwt) {
+        return false;
+    }
+    const cookieValue = getCookie(c, buildFeedUnlockCookieName(feedId));
+    if (!cookieValue) {
+        return false;
+    }
+    try {
+        // The signed JWT payload carries the password hash at issue time so
+        // changing the article password invalidates previously issued unlock
+        // cookies without server-side session tracking.
+        const payload = await jwt.verify(cookieValue);
+        if (!payload || typeof payload !== 'object') {
+            return false;
+        }
+        const providedHash = (payload as { hash?: unknown }).hash;
+        return isHashMatch(providedHash, expectedPasswordHash);
+    } catch {
+        return false;
+    }
+}
+
+async function handleUnlock(c: AppContext, feedId: number, password: string): Promise<Response> {
+    const jwt = c.get('jwt');
+    const db = c.get('db');
+    const feed = await profileAsync(c, 'feed_unlock_lookup', () => findFeedById(db, feedId));
+    if (!feed) {
+        return c.text('Not found', 404);
+    }
+    if (!feed.password) {
+        // No protection configured; treat as unlocked for parity with GET /feed/:id.
+        return c.json({ success: true });
+    }
+
+    const providedHash = await profileAsync(c, 'feed_unlock_hash', () => hashPassword(password));
+    if (!safeEqualHash(providedHash, feed.password)) {
+        return c.json({ success: false, error: 'Invalid password' }, 403);
+    }
+
+    if (!jwt) {
+        return c.text('Server is not configured for article protection', 500);
+    }
+
+    const signedValue = await profileAsync(c, 'feed_unlock_sign', () => jwt.sign({ fid: feedId, hash: feed.password }));
+    setCookie(c, buildFeedUnlockCookieName(feedId), signedValue, {
+        expires: new Date(Date.now() + FEED_UNLOCK_MAX_AGE_SECONDS * 1000),
+        maxAge: FEED_UNLOCK_MAX_AGE_SECONDS,
+        path: '/',
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+    });
+    return c.json({ success: true });
+}
 
 // Lazy-loaded modules for WordPress import
 let XMLParser: any;
@@ -121,13 +195,14 @@ export function FeedService(): Hono<{
             orderBy: [desc(feeds.top), desc(feeds.createdAt), desc(feeds.updatedAt)],
             offset: page_num * limit_num,
             limit: limit_num + 1,
-        }))).map(({ content, hashtags, summary, ...other }: any) => {
+        }))).map(({ content, hashtags, summary, password, ...other }: any) => {
             const avatar = extractImageWithMetadata(content);
             const plainText = stripMarkdown(content);
             return {
                 summary: summary.length > 0 ? summary : plainText.length > 100 ? plainText.slice(0, 100) : plainText,
                 hashtags: hashtags.map(({ hashtag }: any) => hashtag),
                 avatar,
+                password_protected: Boolean(password),
                 ...other
             };
         });
@@ -166,7 +241,7 @@ export function FeedService(): Hono<{
         const serverConfig = c.get('serverConfig');
         const env = c.get('env');
         const uid = c.get('uid');
-        const { title, alias, listed, content, summary, draft, tags, createdAt } = body;
+        const { title, alias, listed, content, summary, draft, tags, createdAt, password } = body;
 
         const exist = await profileAsync(c, 'feed_create_existing', () => findDuplicateFeed(db, title, content));
 
@@ -180,6 +255,10 @@ export function FeedService(): Hono<{
             return c.text('User ID is required', 400);
         }
 
+        const passwordHash = password && password.length > 0
+            ? await profileAsync(c, 'feed_create_password_hash', () => hashPassword(password))
+            : null;
+
         const result = await profileAsync(c, 'feed_create_insert', () => insertFeed(db, {
             title,
             content,
@@ -191,6 +270,7 @@ export function FeedService(): Hono<{
             alias,
             listed: listed ? 1 : 0,
             draft: draft ? 1 : 0,
+            password: passwordHash,
             createdAt: date,
             updatedAt: date
         }));
@@ -232,7 +312,7 @@ export function FeedService(): Hono<{
         const cacheKey = id_num === null ? `feed_alias_${id}` : `feed_id_${id_num}`;
         const where = id_num === null ? eq(feeds.alias, id) : eq(feeds.id, id_num);
 
-        const feed = await profileAsync(c, 'feed_detail_cache_db', () => cache.getOrSet(cacheKey, () => db.query.feeds.findFirst({
+        const fetchFeed = () => db.query.feeds.findFirst({
             where,
             with: {
                 hashtags: {
@@ -243,17 +323,36 @@ export function FeedService(): Hono<{
                 },
                 user: { columns: { id: true, username: true, avatar: true } }
             }
-        })));
+        });
+
+        // Try shared cache first. Protected feeds bypass the cache to avoid
+        // leaking full content through a cache populated by an admin request.
+        let feed = await profileAsync(c, 'feed_detail_cache_get', () => cache.get(cacheKey));
+        let fromCache = feed != null;
+        if (!feed) {
+            feed = await profileAsync(c, 'feed_detail_db', () => fetchFeed());
+        }
 
         if (!feed) {
             return c.text('Not found', 404);
+        }
+
+        const isProtected = Boolean(feed.password);
+
+        // Purge any stale cache entry that may have stored a protected feed's full content.
+        if (isProtected && fromCache) {
+            await profileAsync(c, 'feed_detail_cache_purge', () => cache.delete(cacheKey, false));
+        }
+        // Only cache unprotected feeds.
+        if (!isProtected && !fromCache) {
+            await profileAsync(c, 'feed_detail_cache_set', () => cache.set(cacheKey, feed));
         }
 
         if (feed.draft && feed.uid !== uid && !admin) {
             return c.text('Permission denied', 403);
         }
 
-        const { hashtags, ...other } = feed;
+        const { hashtags, password, ...other } = feed;
         const hashtags_flatten = hashtags.map((f: any) => f.hashtag);
 
         // update visits using HyperLogLog for efficient UV estimation
@@ -302,8 +401,54 @@ export function FeedService(): Hono<{
             await profileAsync(c, 'feed_detail_visit_insert', () => db.insert(visits).values({ feedId: feed.id, ip: ip }));
         }
 
-        return c.json({ ...other, hashtags: hashtags_flatten, pv, uv });
+        // Password gate: protected feeds require either admin access or a valid
+        // signed unlock cookie. Otherwise return metadata-only 403 so the client
+        // can render an unlock prompt without leaking the content.
+        if (isProtected && !admin) {
+            const unlocked = await profileAsync(c, 'feed_detail_unlock_check', () => isFeedUnlocked(c, feed.id, password!));
+            if (!unlocked) {
+                return c.json({
+                    protected: true,
+                    id: feed.id,
+                    title: feed.title,
+                    summary: feed.summary,
+                    alias: feed.alias,
+                    hashtags: hashtags_flatten,
+                    createdAt: feed.createdAt,
+                    updatedAt: feed.updatedAt,
+                    pv,
+                    uv,
+                }, 403);
+            }
+        }
+
+        return c.json({
+            ...other,
+            hashtags: hashtags_flatten,
+            password_protected: isProtected,
+            pv,
+            uv,
+        });
     });
+
+    // POST /feed/:id/unlock - Verify article password and set signed cookie
+    app.post('/:id/unlock', withJsonBody<FeedUnlockRequest>(feedUnlockSchema, async (c, body) => {
+        const db = c.get('db');
+        const id = c.req.param('id');
+        const id_num = parseFeedId(id);
+
+        if (id_num === null) {
+            // Resolve alias to id so the cookie is stable across alias/id access.
+            const aliasRecord = await profileAsync(c, 'feed_unlock_alias_lookup', () => db.select({ id: feeds.id }).from(feeds).where(eq(feeds.alias, id)));
+            if (aliasRecord.length === 0) {
+                return c.text('Not found', 404);
+            }
+            const resolvedId = aliasRecord[0].id;
+            return handleUnlock(c, resolvedId, body.password);
+        }
+
+        return handleUnlock(c, id_num, body.password);
+    }));
 
     // GET /feed/adjacent/:id
     app.get("/adjacent/:id", async (c) => {
@@ -406,7 +551,7 @@ export function FeedService(): Hono<{
         const admin = c.get('admin');
         const uid = c.get('uid')!;
         const id = c.req.param('id');
-        const { title, listed, content, summary, alias, draft, top, tags, createdAt } = body;
+        const { title, listed, content, summary, alias, draft, top, tags, createdAt, password } = body;
 
         const id_num = parseFeedId(id);
         if (id_num === null) {
@@ -420,6 +565,19 @@ export function FeedService(): Hono<{
 
         if (feed.uid !== uid && !admin) {
             return c.text('Permission denied', 403);
+        }
+
+        // Resolve password update:
+        //   undefined  -> leave the stored value untouched
+        //   ""         -> clear protection (set to null)
+        //   non-empty  -> hash and store
+        let passwordUpdate: string | null | undefined = undefined;
+        if (password !== undefined) {
+            if (password.length === 0) {
+                passwordUpdate = null;
+            } else {
+                passwordUpdate = await profileAsync(c, 'feed_update_password_hash', () => hashPassword(password));
+            }
         }
 
         const contentChanged = content && content !== feed.content;
@@ -436,6 +594,7 @@ export function FeedService(): Hono<{
             ai_summary_error: shouldQueueAISummary || isDraft ? "" : undefined,
             alias,
             top,
+            password: passwordUpdate,
             listed: listed ? 1 : 0,
             draft: draft === undefined ? undefined : draft ? 1 : 0,
             createdAt: createdAt ? new Date(createdAt) : undefined,
@@ -549,11 +708,12 @@ export function SearchService(): Hono<{
                 pageIndex: page_num,
                 limit: limit_num,
             });
-            const data = pageResult.rows.map(({ content, hashtags, summary, ...other }: any) => {
+            const data = pageResult.rows.map(({ content, hashtags, summary, password, ...other }: any) => {
                 const plainText = stripMarkdown(content);
                 return {
                     summary: summary.length > 0 ? summary : plainText.length > 100 ? plainText.slice(0, 100) : plainText,
                     hashtags: hashtags.map(({ hashtag }: any) => hashtag),
+                    password_protected: Boolean(password),
                     ...other,
                 };
             });

@@ -65,6 +65,17 @@
       "confirm": "確定刪除這篇文章嗎？",
       "title": "刪除文章"
     },
+    "lock": {
+      "badge": "已加密"
+    },
+    "password": {
+      "create_hint": "留空則發布無密碼文章",
+      "placeholder_change": "輸入新密碼以變更",
+      "placeholder_set": "設定文章密碼（可選）",
+      "protected": "目前已加密",
+      "remove": "移除密碼",
+      "unprotected": "未加密"
+    },
     "search": {
       "placeholder": "請輸入關鍵字",
       "title": "搜尋",
@@ -80,6 +91,15 @@
     "total_short$count_other": "{{count}} 篇",
     "total$count_one": "共有 {{count}} 篇文章",
     "total$count_other": "共有 {{count}} 篇文章",
+    "unlock": {
+      "password_error": "密碼錯誤",
+      "password_placeholder": "請輸入密碼",
+      "password_required": "請輸入密碼",
+      "submit": "解鎖",
+      "submitting": "解鎖中...",
+      "title": "加密文章",
+      "untitled": "無標題"
+    },
     "untop": {
       "confirm": "確定取消置頂這篇文章嗎？",
       "success": "取消置頂成功",

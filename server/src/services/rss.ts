@@ -225,23 +225,38 @@ async function generateFeed(env: Env, db: DB, frontendUrl: string, c?: AppContex
     });
 
     for (const f of feed_list) {
-        const { summary, content, user, ...other } = f;
-        
-        // Convert markdown to HTML
+        const { summary, content, user, password, ...other } = f;
+        const isProtected = Boolean(password);
+
+        // For password-protected feeds, only expose the summary in RSS so the
+        // protected content is never leaked through feed readers.
         let contentHtml = '';
-        if (content) {
-            try {
-                const file = await unified()
-                    .use(remarkParse)
-                    .use(remarkGfm)
-                    .use(remarkRehype)
-                    .use(rehypeStringify)
-                    .process(content);
-                contentHtml = file.toString();
-            } catch (e) {
-                console.error('[RSS] Markdown conversion error:', e);
-                contentHtml = content;
+        let description = '';
+        let image: string | undefined;
+
+        if (isProtected) {
+            description = summary.length > 0 ? summary : '';
+        } else {
+            if (content) {
+                try {
+                    const file = await unified()
+                        .use(remarkParse)
+                        .use(remarkGfm)
+                        .use(remarkRehype)
+                        .use(rehypeStringify)
+                        .process(content);
+                    contentHtml = file.toString();
+                } catch (e) {
+                    console.error('[RSS] Markdown conversion error:', e);
+                    contentHtml = content;
+                }
             }
+            description = summary.length > 0
+                ? summary
+                : content.length > 100
+                    ? content.slice(0, 100)
+                    : content;
+            image = extractImage(content);
         }
 
         feed.addItem({
@@ -249,14 +264,10 @@ async function generateFeed(env: Env, db: DB, frontendUrl: string, c?: AppContex
             id: other.id?.toString() || "0",
             link: `${frontendUrl}/feed/${other.id}`,
             date: other.createdAt,
-            description: summary.length > 0
-                ? summary
-                : content.length > 100
-                    ? content.slice(0, 100)
-                    : content,
+            description,
             content: contentHtml,
             author: user ? [{ name: user.username }] : undefined,
-            image: extractImage(content),
+            image,
         });
     }
     

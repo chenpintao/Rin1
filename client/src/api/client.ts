@@ -34,6 +34,7 @@ import type {
   LoginRequest,
   LoginResponse,
 } from "@rin/api";
+import { API_PATHS } from "@rin/api";
 
 export interface SettingsConfigResponse {
   clientConfig: ConfigResponse;
@@ -155,7 +156,10 @@ export type {
   AuthStatus,
   LoginRequest,
   LoginResponse,
+  ProtectedFeed,
 } from "@rin/api";
+
+export { API_PATHS } from "@rin/api";
 
 
 /**
@@ -207,14 +211,16 @@ class HttpClient {
         } catch {
           errorValue = await responseClone.text();
         }
-        // Extract error message from various formats
+        // Extract error message from various formats while preserving the
+        // structured body (e.g. ProtectedFeed metadata on 403) on error.data.
         let errorMessage: string;
+        let structuredData: unknown;
         if (typeof errorValue === 'string') {
           errorMessage = errorValue;
         } else if (errorValue && typeof errorValue === 'object') {
-          // Handle { error: { message: string } } format
           const err = errorValue as any;
           errorMessage = err.error?.message || err.message || err.error || JSON.stringify(errorValue);
+          structuredData = errorValue;
         } else {
           errorMessage = String(errorValue ?? response.statusText);
         }
@@ -222,6 +228,7 @@ class HttpClient {
           error: {
             status: response.status,
             value: errorMessage,
+            data: structuredData,
           },
         };
       }
@@ -297,6 +304,11 @@ class FeedAPI {
   // GET /api/feed/:id
   async get(id: number | string): Promise<ApiResponse<Feed>> {
     return this.http.get<Feed>(`/api/feed/${id}`);
+  }
+
+  // POST /api/feed/:id/unlock - Verify article password and obtain access cookie
+  async unlock(id: number | string, password: string): Promise<ApiResponse<{ success: boolean; error?: string }>> {
+    return this.http.post<{ success: boolean; error?: string }>(API_PATHS.FEED_UNLOCK(id), { password });
   }
 
   // POST /api/feed

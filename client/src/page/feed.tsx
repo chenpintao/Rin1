@@ -1,4 +1,4 @@
-import type { Feed } from "@rin/api";
+import type { Feed, ProtectedFeed } from "@rin/api";
 import { Modal } from "@rin/ui";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
@@ -22,6 +22,10 @@ import mermaid from "mermaid";
 import { AdjacentSection } from "../components/adjacent_feed.tsx";
 import { stripImageUrlMetadata } from "../utils/image-upload";
 
+function isProtectedFeedPayload(payload: unknown): payload is ProtectedFeed {
+    return typeof payload === "object" && payload !== null && (payload as ProtectedFeed).protected === true;
+}
+
 function extractFirstMarkdownImageUrl(content: string) {
   const match = /!\[.*?\]\((\S+?)(?:\s+"[^"]*")?\)/.exec(content);
   if (!match) {
@@ -38,6 +42,10 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
   const [feed, setFeed] = useState<Feed>();
   const [error, setError] = useState<string>();
   const [headImage, setHeadImage] = useState<string>();
+  const [protectedFeed, setProtectedFeed] = useState<ProtectedFeed>();
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
+  const [unlockError, setUnlockError] = useState<string>();
   const ref = useRef("");
   const [, setLocation] = useLocation();
   const { showAlert, AlertUI } = useAlert();
@@ -47,7 +55,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
   const counterEnabled = config.getBoolean('counter.enabled');
   const hasAISummary = Boolean(feed?.ai_summary?.trim());
   const showAISummaryState = feed?.ai_summary_status === "pending" || feed?.ai_summary_status === "processing" || feed?.ai_summary_status === "failed";
-  const hashtags = Array.isArray(feed?.hashtags) ? feed.hashtags : [];
+  const hashtags = Array.isArray(feed?.hashtags) ? feed.hashtags : (Array.isArray(protectedFeed?.hashtags) ? protectedFeed.hashtags : []);
   function deleteFeed() {
     // Confirm
     showConfirm(
@@ -93,11 +101,18 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
     setFeed(undefined);
     setError(undefined);
     setHeadImage(undefined);
+    setProtectedFeed(undefined);
+    setUnlockError(undefined);
+    setUnlockPassword("");
     client.feed
       .get(id)
       .then(({ data, error }) => {
         if (error) {
-          setError(error.value as string);
+          if (error.status === 403 && isProtectedFeedPayload(error.data)) {
+            setProtectedFeed(error.data);
+          } else {
+            setError(error.value as string);
+          }
         } else if (data && typeof data !== "string") {
           setTimeout(() => {
             setFeed(data as any);
@@ -112,6 +127,51 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
       });
     ref.current = id;
   }, [id]);
+
+  function submitUnlock() {
+    if (!protectedFeed || unlocking) return;
+    if (!unlockPassword) {
+      setUnlockError(t("article.unlock.password_required"));
+      return;
+    }
+    setUnlocking(true);
+    setUnlockError(undefined);
+    client.feed
+      .unlock(id, unlockPassword)
+      .then(({ data, error }) => {
+        setUnlocking(false);
+        if (error) {
+          // Server returns 403 with { success: false, error: 'Invalid password' } on mismatch.
+          const errorData = error.data as { success?: boolean; error?: string } | undefined;
+          setUnlockError(errorData?.error || t("article.unlock.password_error"));
+          return;
+        }
+        if (data?.success) {
+          // Cookie is now set; re-fetch the feed to render full content.
+          setProtectedFeed(undefined);
+          setUnlockPassword("");
+          client.feed.get(id).then(({ data, error }) => {
+            if (error) {
+              if (error.status === 403 && isProtectedFeedPayload(error.data)) {
+                setProtectedFeed(error.data);
+              } else {
+                setError(error.value as string);
+              }
+            } else if (data && typeof data !== "string") {
+              setTimeout(() => {
+                setFeed(data as any);
+                setTop(data.top || 0);
+                const headImageUrl = extractFirstMarkdownImageUrl(data.content);
+                if (headImageUrl) {
+                  setHeadImage(headImageUrl);
+                }
+                clean(id);
+              }, 0);
+            }
+          });
+        }
+      });
+  }
   useEffect(() => {
     mermaid.initialize({
       startOnLoad: false,
@@ -133,24 +193,26 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
   }, [feed]);
 
   return (
-    <Waiting for={feed || error}>
-      {feed && (
+    <Waiting for={feed || error || protectedFeed}>
+      {(feed || protectedFeed) && (
         <Helmet>
-          <title>{`${feed.title ?? "Unnamed"} - ${siteConfig.name}`}</title>
+          <title>{`${(feed ?? protectedFeed)?.title ?? "Unnamed"} - ${siteConfig.name}`}</title>
           <meta property="og:site_name" content={siteName} />
-          <meta property="og:title" content={feed.title ?? ""} />
+          <meta property="og:title" content={(feed ?? protectedFeed)?.title ?? ""} />
           <meta property="og:image" content={headImage ?? siteConfig.avatar} />
           <meta property="og:type" content="article" />
           <meta property="og:url" content={document.URL} />
           <meta
             name="og:description"
             content={
-              feed.content.length > 200
-                ? feed.content.substring(0, 200)
-                : feed.content
+              feed
+                ? feed.content.length > 200
+                  ? feed.content.substring(0, 200)
+                  : feed.content
+                : (protectedFeed?.summary ?? "").slice(0, 200)
             }
           />
-          <meta name="author" content={feed.user.username} />
+          {feed && <meta name="author" content={feed.user.username} />}
           <meta
             name="keywords"
             content={hashtags.map(({ name }) => name).join(", ")}
@@ -158,9 +220,11 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
           <meta
             name="description"
             content={
-              feed.content.length > 200
-                ? feed.content.substring(0, 200)
-                : feed.content
+              feed
+                ? feed.content.length > 200
+                  ? feed.content.substring(0, 200)
+                  : feed.content
+                : (protectedFeed?.summary ?? "").slice(0, 200)
             }
           />
         </Helmet>
@@ -179,6 +243,81 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
               />
             </div>
           </>
+        )}
+        {protectedFeed && !feed && !error && (
+          <main className="wauto">
+            <article
+              className="rounded-2xl bg-w m-2 px-6 py-8 flex flex-col items-center text-center"
+              aria-label={protectedFeed.title ?? "Unnamed"}
+            >
+              <i className="ri-lock-2-line text-5xl t-secondary mb-4" aria-hidden="true" />
+              <h1 className="text-2xl font-bold t-primary break-all">
+                {protectedFeed.title ?? t("article.unlock.untitled")}
+              </h1>
+              {protectedFeed.summary && (
+                <p className="mt-3 max-w-prose whitespace-pre-line break-words t-secondary [overflow-wrap:anywhere]">
+                  {protectedFeed.summary}
+                </p>
+              )}
+              <div className="mt-2 flex gap-1 justify-center text-[12px] text-gray-400">
+                <span title={new Date(protectedFeed.createdAt).toLocaleString()}>
+                  {t("feed_card.published$time", { time: timeago(protectedFeed.createdAt) })}
+                </span>
+                {protectedFeed.createdAt !== protectedFeed.updatedAt && (
+                  <span title={new Date(protectedFeed.updatedAt).toLocaleString()}>
+                    {t("feed_card.updated$time", { time: timeago(protectedFeed.updatedAt) })}
+                  </span>
+                )}
+              </div>
+              {counterEnabled && (protectedFeed.pv > 0 || protectedFeed.uv > 0) && (
+                <p className="mt-1 text-[12px] text-gray-400 font-normal link-line">
+                  <span> {t("count.pv")} </span>
+                  <span>{protectedFeed.pv}</span>
+                  <span> |</span>
+                  <span> {t("count.uv")} </span>
+                  <span>{protectedFeed.uv}</span>
+                </p>
+              )}
+              {hashtags.length > 0 && (
+                <div className="mt-4 flex flex-row flex-wrap justify-center gap-x-2">
+                  {hashtags.map(({ name }, index) => (
+                    <HashTag key={index} name={name} />
+                  ))}
+                </div>
+              )}
+              <div className="mt-6 w-full max-w-sm flex flex-col items-center gap-3">
+                <div className="w-full flex flex-row items-center gap-2 rounded-xl border border-black/10 dark:border-white/10 bg-secondary px-3 py-2">
+                  <i className="ri-key-2-line t-secondary" aria-hidden="true" />
+                  <input
+                    type="password"
+                    autoFocus
+                    autoComplete="current-password"
+                    aria-label={t("article.unlock.password_placeholder")}
+                    placeholder={t("article.unlock.password_placeholder")}
+                    value={unlockPassword}
+                    onChange={(e) => {
+                      setUnlockPassword(e.target.value);
+                      if (unlockError) setUnlockError(undefined);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") submitUnlock();
+                    }}
+                    className="w-full bg-transparent outline-none t-primary placeholder:text-neutral-400"
+                  />
+                </div>
+                {unlockError && (
+                  <p className="text-sm text-red-500">{unlockError}</p>
+                )}
+                <button
+                  onClick={submitUnlock}
+                  disabled={unlocking}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-theme px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-theme-hover active:bg-theme-active disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {unlocking ? t("article.unlock.submitting") : t("article.unlock.submit")}
+                </button>
+              </div>
+            </article>
+          </main>
         )}
         {feed && !error && (
           <>

@@ -9,15 +9,7 @@ import {
     ForbiddenError,
     InternalServerError,
 } from "../errors";
-
-// Hash password using SHA-256
-async function hashPassword(password: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(password);
-    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-}
+import { hashPassword, safeEqualHash } from "../utils/password";
 
 export function PasswordAuthService(): Hono<{
         Bindings: Env;
@@ -54,7 +46,7 @@ export function PasswordAuthService(): Hono<{
         if (username === adminUsername) {
             const expectedHash = await profileAsync(c, 'auth_admin_hash', () => hashPassword(adminPassword));
             
-            if (hashedPassword !== expectedHash) {
+            if (!safeEqualHash(hashedPassword, expectedHash)) {
                 throw new ForbiddenError('Invalid credentials');
             }
 
@@ -86,7 +78,7 @@ export function PasswordAuthService(): Hono<{
                 throw new InternalServerError('Failed to get admin user');
             }
 
-            if (user.password !== expectedHash) {
+            if (!safeEqualHash(user.password || '', expectedHash)) {
                 // Update admin password if changed
                 await profileAsync(c, 'auth_admin_sync', () => db.update(users)
                     .set({ password: expectedHash, username: adminUsername })
@@ -120,7 +112,7 @@ export function PasswordAuthService(): Hono<{
             throw new ForbiddenError('Invalid credentials');
         }
 
-        if (user.password !== hashedPassword) {
+        if (!safeEqualHash(user.password || '', hashedPassword)) {
             throw new ForbiddenError('Invalid credentials');
         }
 

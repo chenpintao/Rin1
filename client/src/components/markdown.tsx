@@ -6,13 +6,19 @@ import {
   base16AteliersulphurpoolLight,
   vscDarkPlus,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
+import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
+import rehypeSlug from "rehype-slug";
 import gfm from "remark-gfm";
 import remarkMermaid from "../remark/remarkMermaid";
+import remarkDirectives from "../remark/remarkDirectives";
 import { remarkAlert } from "remark-github-blockquote-alert";
 import remarkMath from "remark-math";
 import remarkBreaks from "remark-breaks";
+import remarkDirective from "remark-directive";
+import remarkEmoji from "remark-emoji";
+import remarkFrontmatter from "remark-frontmatter";
 import Lightbox, { SlideImage } from "yet-another-react-lightbox";
 import Counter from "yet-another-react-lightbox/plugins/counter";
 import Download from "yet-another-react-lightbox/plugins/download";
@@ -136,9 +142,36 @@ export function Markdown({ content }: { content: string }) {
   const Content = useMemo(() => (
     <ReactMarkdown
       className="toc-content min-w-0 dark:text-neutral-300 [overflow-wrap:anywhere]"
-      remarkPlugins={[gfm, remarkMermaid, remarkMath, remarkAlert, remarkBreaks]}
+      remarkPlugins={[
+        // frontmatter must run before other remark plugins so the YAML
+        // block at the top of the document is parsed and stripped instead
+        // of being rendered as a code block.
+        remarkFrontmatter,
+        gfm,
+        remarkDirective,
+        remarkDirectives,
+        remarkMermaid,
+        remarkMath,
+        remarkAlert,
+        remarkEmoji,
+        remarkBreaks,
+      ]}
       children={content}
-      rehypePlugins={[rehypeKatex, rehypeRaw]}
+      rehypePlugins={[
+        rehypeKatex,
+        rehypeRaw,
+        rehypeSlug,
+        // Wrap heading text in an anchor link that appears on hover. Using
+        // the "wrap" behavior keeps the heading text selectable while
+        // exposing a permalink via aria-hidden decorations.
+        [rehypeAutolinkHeadings, {
+          behavior: 'wrap',
+          properties: {
+            className: 'heading-anchor',
+            ariaHidden: 'false',
+          },
+        }],
+      ]}
       components={{
         img({ node, src, ...props }) {
           const offset = node!.position!.start.offset!;
@@ -245,7 +278,19 @@ export function Markdown({ content }: { content: string }) {
             );
           }
         },
-        blockquote({ children, ...props }) {
+        blockquote({ children, className, ...props }) {
+          // GitHub alerts (from `> [!NOTE]` or `:::note` directives) carry
+          // their own className through `data.hProperties`. Preserve those
+          // classes and skip the default blockquote styling so the alert CSS
+          // can take over.
+          const isAlert = typeof className === 'string' && className.includes('markdown-alert');
+          if (isAlert) {
+            return (
+              <blockquote className={className} {...props}>
+                {children}
+              </blockquote>
+            );
+          }
           return (
             <blockquote
               className="border-l-4 border-gray-300 dark:border-gray-500 pl-4 italic text-gray-500 dark:text-gray-400"
@@ -307,7 +352,6 @@ export function Markdown({ content }: { content: string }) {
         h1({ children, ...props }) {
           return (
             <h1
-              id={children?.toString()}
               {...props}
               className={`${props.className || ""} mt-4 break-words text-3xl font-bold [overflow-wrap:anywhere]`.trim()}
               style={{ ...props.style, scrollMarginTop: "var(--header-scroll-offset, 7rem)" }}
@@ -319,7 +363,6 @@ export function Markdown({ content }: { content: string }) {
         h2({ children, ...props }) {
           return (
             <h2
-              id={children?.toString()}
               {...props}
               className={`${props.className || ""} mt-4 break-words text-2xl font-bold [overflow-wrap:anywhere]`.trim()}
               style={{ ...props.style, scrollMarginTop: "var(--header-scroll-offset, 7rem)" }}
@@ -331,7 +374,6 @@ export function Markdown({ content }: { content: string }) {
         h3({ children, ...props }) {
           return (
             <h3
-              id={children?.toString()}
               {...props}
               className={`${props.className || ""} mt-4 break-words text-xl font-bold [overflow-wrap:anywhere]`.trim()}
               style={{ ...props.style, scrollMarginTop: "var(--header-scroll-offset, 7rem)" }}
@@ -343,7 +385,6 @@ export function Markdown({ content }: { content: string }) {
         h4({ children, ...props }) {
           return (
             <h4
-              id={children?.toString()}
               {...props}
               className={`${props.className || ""} mt-4 break-words text-lg font-bold [overflow-wrap:anywhere]`.trim()}
               style={{ ...props.style, scrollMarginTop: "var(--header-scroll-offset, 7rem)" }}
@@ -355,7 +396,6 @@ export function Markdown({ content }: { content: string }) {
         h5({ children, ...props }) {
           return (
             <h5
-              id={children?.toString()}
               {...props}
               className={`${props.className || ""} mt-4 break-words text-base font-bold [overflow-wrap:anywhere]`.trim()}
               style={{ ...props.style, scrollMarginTop: "var(--header-scroll-offset, 7rem)" }}
@@ -367,7 +407,6 @@ export function Markdown({ content }: { content: string }) {
         h6({ children, ...props }) {
           return (
             <h6
-              id={children?.toString()}
               {...props}
               className={`${props.className || ""} mt-4 break-words text-sm font-bold [overflow-wrap:anywhere]`.trim()}
               style={{ ...props.style, scrollMarginTop: "var(--header-scroll-offset, 7rem)" }}

@@ -11,11 +11,12 @@ interface InputProps {
   onSubmit?: () => void;
   disabled?: boolean;
   type?: string;
+  autoComplete?: string;
   variant?: "default" | "flat";
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ autofocus, value, setValue, className, placeholder, onSubmit, disabled, type = "text", variant = "default" }, ref) => {
+  ({ autofocus, value, setValue, className, placeholder, onSubmit, disabled, type = "text", autoComplete, variant = "default" }, ref) => {
     const variantClass =
       variant === "flat"
         ? "border border-black/10 bg-w shadow-none dark:border-white/10"
@@ -27,6 +28,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         type={type}
         disabled={disabled}
         autoFocus={autofocus}
+        autoComplete={autoComplete}
         placeholder={placeholder}
         value={value}
         onKeyDown={(event) => {

@@ -16,6 +16,7 @@ export const feedCreateSchema = t.Object({
   content: t.String({ minLength: 1 }),
   summary: t.String({ optional: true }),
   alias: t.String({ optional: true }),
+  password: t.String({ optional: true }),
   draft: t.Boolean(),
   listed: t.Boolean(),
   createdAt: t.Date({ optional: true }),
@@ -27,6 +28,7 @@ export const feedUpdateSchema = t.Object({
   alias: t.String({ optional: true }),
   content: t.String({ optional: true }),
   summary: t.String({ optional: true }),
+  password: t.String({ optional: true }),
   listed: t.Boolean(),
   draft: t.Boolean({ optional: true }),
   createdAt: t.Date({ optional: true }),
@@ -37,6 +39,11 @@ export const feedUpdateSchema = t.Object({
 export const feedSetTopSchema = t.Object({
   top: t.Numeric(),
 });
+
+export const feedUnlockSchema = t.Object({
+  password: t.String({ minLength: 1 }),
+});
+
 
 // ============================================================================
 // Auth Schemas

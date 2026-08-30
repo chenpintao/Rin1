@@ -81,8 +81,57 @@ ul {
   @apply !border-red-300 bg-red-100 !text-red-400 dark:!bg-red-900 dark:!text-red-300 dark:!border-red-900;
 }
 
+/* `:::danger` directive — visually equivalent to caution (red) but kept as
+   a distinct class so authors can choose either name. */
+.markdown-alert-danger {
+  @apply !border-red-300 bg-red-100 !text-red-400 dark:!bg-red-900 dark:!text-red-300 dark:!border-red-900;
+}
+
+/* `:::details` directive — neutral slate styling that reads like a callout
+   without implying urgency. */
+.markdown-alert-details {
+  @apply !border-slate-300 bg-slate-100 !text-slate-500 dark:!bg-slate-800 dark:!text-slate-300 dark:!border-slate-700;
+}
+
 .markdown-alert-title {
   @apply flex flex-row items-center !mb-0 !text-inherit !font-bold fill-current;
+}
+
+/* Heading permalink anchors injected by rehype-autolink-headings. The link
+   wraps the heading text; we keep it visually invisible until the heading
+   is hovered, then surface a `#` indicator that jumps to the anchor. */
+.heading-anchor {
+  @apply no-underline text-inherit;
+}
+
+.heading-anchor:hover {
+  text-decoration: none;
+}
+
+h1:hover .heading-anchor::before,
+h2:hover .heading-anchor::before,
+h3:hover .heading-anchor::before,
+h4:hover .heading-anchor::before,
+h5:hover .heading-anchor::before,
+h6:hover .heading-anchor::before {
+  content: "#";
+  margin-right: 0.4em;
+  color: rgb(var(--rin-text-muted-rgb));
+  opacity: 0.55;
+}
+
+/* Task list checkboxes from remark-gfm — make the checkbox feel native
+   inside the article body without the default form-control look. */
+.contains-task-list {
+  @apply list-none pl-0;
+}
+
+.contains-task-list li {
+  @apply flex flex-row items-start gap-2 py-0.5;
+}
+
+.contains-task-list li input[type="checkbox"] {
+  @apply mt-1 h-4 w-4 cursor-default accent-theme;
 }
 
 .p-inputtext {

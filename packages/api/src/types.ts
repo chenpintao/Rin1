@@ -8,6 +8,7 @@ export interface ApiResponse<T> {
   error?: {
     status: number;
     value: string;
+    data?: unknown;
   };
 }
 
@@ -38,6 +39,7 @@ export interface Feed {
   pv: number;
   uv: number;
   top?: number;
+  password_protected?: boolean;
 }
 
 export interface FeedListResponse {
@@ -57,6 +59,7 @@ export interface FeedListResponse {
     updatedAt: string;
     pv: number;
     uv: number;
+    password_protected?: boolean;
   }>;
   hasNext: boolean;
 }
@@ -72,6 +75,7 @@ export interface CreateFeedRequest {
   content: string;
   summary?: string;
   alias?: string;
+  password?: string;
   draft: boolean;
   listed: boolean;
   createdAt?: string;
@@ -83,6 +87,7 @@ export interface UpdateFeedRequest {
   content?: string;
   summary?: string;
   alias?: string;
+  password?: string;
   listed: boolean;
   draft?: boolean;
   createdAt?: string;
@@ -102,6 +107,23 @@ export interface AdjacentFeed {
 export interface AdjacentFeedResponse {
   previousFeed: AdjacentFeed | null;
   nextFeed: AdjacentFeed | null;
+}
+
+export interface ProtectedFeed {
+  protected: true;
+  id: number;
+  title: string | null;
+  summary: string;
+  alias: string | null;
+  hashtags: Array<{ id: number; name: string }>;
+  createdAt: string;
+  updatedAt: string;
+  pv: number;
+  uv: number;
+}
+
+export interface FeedUnlockRequest {
+  password: string;
 }
 
 // ============================================================================
@@ -316,6 +338,7 @@ export const API_PATHS = {
   FEED_DELETE: (id: number) => `/api/feed/${id}`,
   FEED_ADJACENT: (id: number | string) => `/api/feed/adjacent/${id}`,
   FEED_SET_TOP: (id: number) => `/api/feed/top/${id}`,
+  FEED_UNLOCK: (id: number | string) => `/api/feed/${id}/unlock`,
 
   // Auth
   AUTH_STATUS: '/api/auth/status',
