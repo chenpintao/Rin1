@@ -246,6 +246,18 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
       document.body.style.userSelect = prevUserSelect;
     };
   }, [resizing]);
+  // 右侧空间放不下目录（w-80 = 320px）时自动隐藏，空间结构保留，内容区保持居中
+  const tocWrapRef = useRef<HTMLDivElement>(null);
+  const [tocAvailable, setTocAvailable] = useState(true);
+  useEffect(() => {
+    const el = tocWrapRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setTocAvailable((entry?.contentRect.width ?? 0) >= 320);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const resizeHandles = (
     <>
@@ -535,8 +547,8 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
               <div className="h-16" />
               {resizeHandles}
             </main>
-            <div className={contentWidthPct == null ? "w-80 hidden lg:block relative" : "relative hidden lg:block min-w-0 flex-1 [clip-path:inset(0)]"}>
-              <div className="start-0 end-0 top-[5.5rem] sticky w-80 max-w-full">
+            <div ref={tocWrapRef} className={contentWidthPct == null ? "w-80 hidden lg:block relative" : "relative hidden lg:block min-w-0 flex-1"}>
+              <div className={`start-0 end-0 top-[5.5rem] sticky w-80 ${contentWidthPct != null && !tocAvailable ? "hidden" : ""}`}>
                 <TOC />
               </div>
             </div>
