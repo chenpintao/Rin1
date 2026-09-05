@@ -68,6 +68,10 @@
     "lock": {
       "badge": "Protected"
     },
+    "resize": {
+      "aria": "Drag to adjust article content width",
+      "reset": "Double-click to restore the default width"
+    },
     "password": {
       "create_hint": "Leave empty to publish without a password",
       "placeholder_change": "Enter new password to change",

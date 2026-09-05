@@ -1,6 +1,6 @@
 import type { Feed, ProtectedFeed } from "@rin/api";
 import { Modal } from "@rin/ui";
-import { useContext, useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Helmet } from "react-helmet";
 import { useTranslation } from "react-i18next";
 import Popup from "reactjs-popup";
@@ -56,6 +56,12 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
   const hasAISummary = Boolean(feed?.ai_summary?.trim());
   const showAISummaryState = feed?.ai_summary_status === "pending" || feed?.ai_summary_status === "processing" || feed?.ai_summary_status === "failed";
   const hashtags = Array.isArray(feed?.hashtags) ? feed.hashtags : (Array.isArray(protectedFeed?.hashtags) ? protectedFeed.hashtags : []);
+  // 文章内容区宽度拖拽调整：仅本次会话有效，刷新后恢复默认宽度
+  const layoutRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const [contentWidthPct, setContentWidthPct] = useState<number | null>(null);
+  const [resizing, setResizing] = useState(false);
+  const dragStateRef = useRef<{ centerX: number; containerWidth: number } | null>(null);
   function deleteFeed() {
     // Confirm
     showConfirm(
@@ -192,6 +198,82 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
     })
   }, [feed]);
 
+  // 内容区以页面中心为轴对称缩放：宽度 = 2 * 指针到页面中心的距离
+  function beginResize(e: ReactPointerEvent<HTMLDivElement>) {
+    const layout = layoutRef.current;
+    if (!layout) return;
+    e.preventDefault();
+    const rect = layout.getBoundingClientRect();
+    dragStateRef.current = { centerX: rect.left + rect.width / 2, containerWidth: rect.width };
+    setContentWidthPct((prev) => {
+      if (prev != null) return prev;
+      const mainRect = mainRef.current?.getBoundingClientRect();
+      if (!mainRect || rect.width === 0) return prev;
+      return Math.min(96, Math.max(30, Math.round((mainRect.width / rect.width) * 100)));
+    });
+    setResizing(true);
+  }
+  function resetContentWidth() {
+    setContentWidthPct(null);
+  }
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMove = (e: PointerEvent) => {
+      const drag = dragStateRef.current;
+      if (!drag || drag.containerWidth === 0) return;
+      const pct = (2 * Math.abs(e.clientX - drag.centerX) / drag.containerWidth) * 100;
+      setContentWidthPct(Math.min(96, Math.max(30, Math.round(pct))));
+    };
+    const stop = () => setResizing(false);
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [resizing]);
+  // 拖拽期间锁定全局光标与文本选择
+  useEffect(() => {
+    if (!resizing) return;
+    const prevCursor = document.body.style.cursor;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevUserSelect;
+    };
+  }, [resizing]);
+
+  const resizeHandles = (
+    <>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("article.resize.aria")}
+        title={t("article.resize.reset")}
+        onPointerDown={beginResize}
+        onDoubleClick={resetContentWidth}
+        className="group absolute inset-y-0 -left-1 z-30 w-3 cursor-col-resize touch-none"
+      >
+        <div className={`sticky top-1/2 mx-auto h-24 w-[3px] -translate-y-1/2 rounded-full transition-all duration-200 ${resizing ? "w-[5px] bg-theme" : "bg-neutral-300/80 group-hover:w-[5px] group-hover:bg-theme dark:bg-neutral-600/80 dark:group-hover:bg-theme"}`} />
+      </div>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("article.resize.aria")}
+        title={t("article.resize.reset")}
+        onPointerDown={beginResize}
+        onDoubleClick={resetContentWidth}
+        className="group absolute inset-y-0 -right-1 z-30 w-3 cursor-col-resize touch-none"
+      >
+        <div className={`sticky top-1/2 mx-auto h-24 w-[3px] -translate-y-1/2 rounded-full transition-all duration-200 ${resizing ? "w-[5px] bg-theme" : "bg-neutral-300/80 group-hover:w-[5px] group-hover:bg-theme dark:bg-neutral-600/80 dark:group-hover:bg-theme"}`} />
+      </div>
+    </>
+  );
+
   return (
     <Waiting for={feed || error || protectedFeed}>
       {(feed || protectedFeed) && (
@@ -229,7 +311,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
           />
         </Helmet>
       )}
-      <div className="w-full flex flex-row justify-center ani-show">
+      <div ref={layoutRef} className="w-full flex flex-row justify-center ani-show">
         {error && (
           <>
             <div className="flex flex-col wauto rounded-2xl bg-w m-2 p-6 items-center justify-center space-y-2">
@@ -321,8 +403,12 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
         )}
         {feed && !error && (
           <>
-            <div className="xl:w-64" />
-            <main className="wauto">
+            <div className={contentWidthPct == null ? "xl:w-64" : "hidden lg:block min-w-0 flex-1"} />
+            <main
+              ref={mainRef}
+              className={`relative ${contentWidthPct == null ? "wauto" : "shrink-0"} transition-[width] ease-out ${resizing ? "duration-100" : "duration-300"}`}
+              style={contentWidthPct != null ? { width: `${contentWidthPct}%` } : undefined}
+            >
               <article
                 className="rounded-2xl bg-w m-2 px-6 py-4"
                 aria-label={feed.title ?? "Unnamed"}
@@ -447,17 +533,22 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
               <AdjacentSection id={id} setError={setError} />
               {feed && <Comments id={`${feed.id}`} />}
               <div className="h-16" />
+              {resizeHandles}
             </main>
-            <div className="w-80 hidden lg:block relative">
-              <div
-                className={`start-0 end-0 top-[5.5rem] sticky`}
-              >
+            <div className={contentWidthPct == null ? "w-80 hidden lg:block relative" : "relative hidden lg:block min-w-0 flex-1 [clip-path:inset(0)]"}>
+              <div className="start-0 end-0 top-[5.5rem] sticky w-80 max-w-full">
                 <TOC />
               </div>
             </div>
           </>
         )}
       </div>
+      {resizing && contentWidthPct != null && (
+        <div className="pointer-events-none fixed left-1/2 top-16 z-50 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-black/5 bg-[rgb(var(--rin-surface-rgb)/0.95)] px-4 py-1.5 text-sm font-medium shadow-[0_8px_30px_rgba(15,23,42,0.12)] t-primary dark:border-white/10">
+          <i className="ri-contract-left-right-line text-theme" aria-hidden="true" />
+          <span className="tabular-nums">{contentWidthPct}%</span>
+        </div>
+      )}
       <AlertUI />
       <ConfirmUI />
     </Waiting>

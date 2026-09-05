@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { timeago } from "../utils/timeago";
 import { HashTag } from "./hashtag";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { drawBlurhashToCanvas } from "../utils/blurhash";
 import { parseImageUrlMetadata } from "../utils/image-upload";
 import { useImageLoadState } from "../utils/use-image-load-state";
@@ -110,13 +110,25 @@ export function FeedCard({ id, title, avatar, draft, listed, top, password_prote
     const safeHashtags = Array.isArray(hashtags) ? hashtags : [];
     const activeVariant = normalizeFeedCardVariant(variant ?? siteConfig.feedCardVariant);
     const styles = FEED_CARD_STYLES[activeVariant];
-    const body = (
+    // 标题不放在链接内，标题文字可自由选中复制；封面图与正文区域仍可点击打开文章
+    const wrapLink = (children: ReactNode) =>
+        preview ? (
+            children
+        ) : (
+            <Link href={`/feed/${id}`} target="_blank" rel="noopener noreferrer" className="block min-w-0 w-full">
+                {children}
+            </Link>
+        );
+
+    return (
         <div className={styles.card}>
-            {avatar ? (
-                <div className={styles.imageWrap}>
-                    <FeedCardImage src={avatar} variant={activeVariant} />
-                </div>
-            ) : null}
+            {avatar
+                ? wrapLink(
+                      <div className={styles.imageWrap}>
+                          <FeedCardImage src={avatar} variant={activeVariant} />
+                      </div>
+                  )
+                : null}
             <div className={activeVariant === "editorial" ? "px-2 pb-2" : ""}>
                 <h1 className={styles.title}>
                     {password_protected && (
@@ -128,33 +140,35 @@ export function FeedCard({ id, title, avatar, draft, listed, top, password_prote
                     )}
                     {title}
                 </h1>
-                <p className={`space-x-2 ${styles.meta}`}>
-                    <span title={new Date(createdAt).toLocaleString()}>
-                        {createdAt === updatedAt ? timeago(createdAt) : t('feed_card.published$time', { time: timeago(createdAt) })}
-                    </span>
-                    {createdAt !== updatedAt &&
-                        <span title={new Date(updatedAt).toLocaleString()}>
-                            {t('feed_card.updated$time', { time: timeago(updatedAt) })}
-                        </span>
-                    }
-                </p>
-                <p className={`space-x-2 ${styles.meta} ${activeVariant === "editorial" ? "mt-2" : ""}`}>
-                    {draft === 1 && <span>{t("draft")}</span>}
-                    {listed === 0 && <span>{t("unlisted")}</span>}
-                    {top === 1 && <span className="text-theme">{t('article.top.title')}</span>}
-                    {password_protected && <span>{t("article.lock.badge")}</span>}
-                </p>
-                <p className={`whitespace-pre-line break-words [overflow-wrap:anywhere] ${styles.summary} ${activeVariant === "editorial" ? "mt-4 max-w-3xl" : ""}`}>{summary}</p>
-                {safeHashtags.length > 0 &&
-                    <div className={`flex flex-row flex-wrap justify-start gap-2 ${activeVariant === "editorial" ? "mt-4" : "mt-2 gap-x-2"}`}>
-                        {safeHashtags.map(({ name }, index) => (
-                            <HashTag key={index} name={name} />
-                        ))}
-                    </div>
-                }
+                {wrapLink(
+                    <>
+                        <p className={`space-x-2 ${styles.meta}`}>
+                            <span title={new Date(createdAt).toLocaleString()}>
+                                {createdAt === updatedAt ? timeago(createdAt) : t('feed_card.published$time', { time: timeago(createdAt) })}
+                            </span>
+                            {createdAt !== updatedAt &&
+                                <span title={new Date(updatedAt).toLocaleString()}>
+                                    {t('feed_card.updated$time', { time: timeago(updatedAt) })}
+                                </span>
+                            }
+                        </p>
+                        <p className={`space-x-2 ${styles.meta} ${activeVariant === "editorial" ? "mt-2" : ""}`}>
+                            {draft === 1 && <span>{t("draft")}</span>}
+                            {listed === 0 && <span>{t("unlisted")}</span>}
+                            {top === 1 && <span className="text-theme">{t('article.top.title')}</span>}
+                            {password_protected && <span>{t("article.lock.badge")}</span>}
+                        </p>
+                        <p className={`whitespace-pre-line break-words [overflow-wrap:anywhere] ${styles.summary} ${activeVariant === "editorial" ? "mt-4 max-w-3xl" : ""}`}>{summary}</p>
+                        {safeHashtags.length > 0 &&
+                            <div className={`flex flex-row flex-wrap justify-start gap-2 ${activeVariant === "editorial" ? "mt-4" : "mt-2 gap-x-2"}`}>
+                                {safeHashtags.map(({ name }, index) => (
+                                    <HashTag key={index} name={name} />
+                                ))}
+                            </div>
+                        }
+                    </>
+                )}
             </div>
         </div>
     );
-
-    return preview ? body : <Link href={`/feed/${id}`} target="_blank" rel="noopener noreferrer" className="block min-w-0 w-full">{body}</Link>;
 }

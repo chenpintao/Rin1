@@ -68,6 +68,10 @@
     "lock": {
       "badge": "已加密"
     },
+    "resize": {
+      "aria": "拖动调整文章内容宽度",
+      "reset": "双击恢复默认宽度"
+    },
     "password": {
       "create_hint": "留空则发布无密码文章",
       "placeholder_change": "输入新密码以更改",

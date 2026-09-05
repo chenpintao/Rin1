@@ -68,6 +68,10 @@
     "lock": {
       "badge": "保護付き"
     },
+    "resize": {
+      "aria": "ドラッグで記事コンテンツの幅を調整",
+      "reset": "ダブルクリックで既定の幅に戻す"
+    },
     "password": {
       "create_hint": "空欄ならパスワードなしで公開",
       "placeholder_change": "変更する新しいパスワード",
