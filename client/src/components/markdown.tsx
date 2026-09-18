@@ -6,7 +6,6 @@ import {
   base16AteliersulphurpoolLight,
   vscDarkPlus,
 } from "react-syntax-highlighter/dist/esm/styles/prism";
-import rehypeAutolinkHeadings from "rehype-autolink-headings";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSlug from "rehype-slug";
@@ -161,16 +160,6 @@ export function Markdown({ content }: { content: string }) {
         rehypeKatex,
         rehypeRaw,
         rehypeSlug,
-        // Wrap heading text in an anchor link that appears on hover. Using
-        // the "wrap" behavior keeps the heading text selectable while
-        // exposing a permalink via aria-hidden decorations.
-        [rehypeAutolinkHeadings, {
-          behavior: 'wrap',
-          properties: {
-            className: 'heading-anchor',
-            ariaHidden: 'false',
-          },
-        }],
       ]}
       components={{
         img({ node, src, ...props }) {

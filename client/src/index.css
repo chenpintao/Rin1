@@ -97,29 +97,6 @@ ul {
   @apply flex flex-row items-center !mb-0 !text-inherit !font-bold fill-current;
 }
 
-/* Heading permalink anchors injected by rehype-autolink-headings. The link
-   wraps the heading text; we keep it visually invisible until the heading
-   is hovered, then surface a `#` indicator that jumps to the anchor. */
-.heading-anchor {
-  @apply no-underline text-inherit;
-}
-
-.heading-anchor:hover {
-  text-decoration: none;
-}
-
-h1:hover .heading-anchor::before,
-h2:hover .heading-anchor::before,
-h3:hover .heading-anchor::before,
-h4:hover .heading-anchor::before,
-h5:hover .heading-anchor::before,
-h6:hover .heading-anchor::before {
-  content: "#";
-  margin-right: 0.4em;
-  color: rgb(var(--rin-text-muted-rgb));
-  opacity: 0.55;
-}
-
 /* Task list checkboxes from remark-gfm — make the checkbox feel native
    inside the article body without the default form-control look. */
 .contains-task-list {
